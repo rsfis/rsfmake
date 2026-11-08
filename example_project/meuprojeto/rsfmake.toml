@@ -1,0 +1,23 @@
+[package]
+name = "meuprojeto"
+version = "0.1.0"
+type = "exe"        # exe | static | shared
+std = 20
+sources = ["src/*.cpp"]
+# include = ["include", "src"]
+# defines = []
+# assets  = "assets"
+
+[dependencies]
+glad = "*"
+glfw = "*"
+glm = "*"
+bullet3 = "*"
+nlohmann_json = "*"
+tinygltf = "*"
+# imgui_glfw_gl3 = "*"
+# vulkan = "*"
+
+# Lib customizada (qualquer repo git com CMake):
+# fmod = "*"        # SDK proprietário: extraia em redist/_sdk/fmod
+# minhalib = { git = "https://github.com/x/y.git", tag = "v1.0", cmake = ["-DY_TESTS=OFF"], libs = ["y"], inc = ["include/y"] }

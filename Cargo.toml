@@ -1,0 +1,16 @@
+[package]
+name = "rsfmake"
+version = "0.1.0"
+edition = "2021"
+description = "Gerenciador de pacotes/build C++ sobre CMake + Ninja, estilo Cargo"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
