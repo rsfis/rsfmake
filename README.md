@@ -113,6 +113,7 @@ To see the list directly in the terminal: `rsfmake list`.
 - `sdl2_ttf` (cmake, release-2.22.0)
 - `sdl2_mixer` (cmake, release-2.8.0)
 - `sfml` (cmake, 3.0.0)
+- `ncurses` (system, 6.5)
 
 ## OpenGL / Vulkan
 - `glad` (cmake, v0.1.36) — requires `python3`; defines `GLFW_INCLUDE_NONE`
