@@ -6,6 +6,7 @@
 //!   Header  -> só clona; `inc` é relativo ao diretório do código-fonte
 //!   Sources -> clona e compila os `srcs` junto com o projeto (ex: imgui)
 //!   System  -> lib do sistema (opengl, vulkan), nada é baixado
+//!   Sources -> aceita globs em `srcs` (ex: "pdcurses/*.c")
 //!   Prebuilt-> SDK proprietário baixado À MÃO (fmod, steamworks). Procurado na
 //!              variável de ambiente `sdk` ou em redist/_sdk/<sdk_dir>; os binários
 //!              são copiados para redist/<plat>/<arch>/{lib,bin}.
@@ -347,9 +348,20 @@ pub fn registry() -> HashMap<String, Lib> {
             Lib::new("gpsd", "", "", System).libs(&["gps"]).sys_linux(&["m", "pthread"]),
 
             // ---------- Terminal / TUI ----------
-            // ncurses: lib do sistema, só Linux (sudo apt install libncurses-dev). Uso: #include <ncurses.h>
-            // Para UTF-8/caracteres largos troque "ncurses" por "ncursesw". No Windows use MSYS2 ou PDCurses.
-            Lib::new("ncurses", "", "", System).libs(&["ncurses"]),
+            // ncurses: no Linux usa ncursesw (UTF-8 / wide). Pacote: libncurses-dev ou libncursesw5-dev.
+            // No Windows o rsfmake troca automaticamente `ncurses`/`ncursesw` por `pdcurses`.
+            // Uso: #include <ncurses.h> (headers do ncursesw são compatíveis).
+            Lib::new("ncurses", "", "", System).libs(&["ncursesw"]),
+            // Alias explícito (mesmo link). Preferível se o projeto já declara ncursesw.
+            Lib::new("ncursesw", "", "", System).libs(&["ncursesw"]),
+            // PDCursesMod (porta wincon): ncurses para o terminal do Windows. Compilado junto com o projeto
+            // (Sources, sem CMake). O rsfmake gera redist/windows/<arch>/include/ncurses.h que inclui <curses.h>.
+            // Só Windows (também no cross com MinGW).
+            Lib::new("pdcurses", &gh("Bill-Gray/PDCursesMod"), "v4.4.0", Sources)
+            .srcs(&["pdcurses/*.c", "wincon/*.c"])
+            .inc(&[".", "wincon"])
+            .defs(&["PDC_WIDE", "PDC_FORCE_UTF8", "HAVE_VSNPRINTF", "_CRT_SECURE_NO_WARNINGS"])
+            .sys_win(&["user32", "gdi32", "advapi32", "shell32", "ole32", "comdlg32", "winspool", "winmm"]),
 
             // ---------- Matemática / científico ----------
             // Armadillo precisa de BLAS/LAPACK (sudo apt install libopenblas-dev).

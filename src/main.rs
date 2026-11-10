@@ -361,34 +361,45 @@ fn custom_to_lib(name: &str, c: &CustomDep) -> Result<Lib> {
     Ok(l)
 }
 
+/// No Windows não existe ncurses nativo: usa PDCursesMod (que expõe a mesma API).
+fn curses_alias(name: &str, win: bool) -> &str {
+    if win && matches!(name, "ncurses" | "ncursesw") { "pdcurses" } else { name }
+}
+
 /// Expande dependências transitivas; resultado em ordem "deps primeiro".
-fn resolve(m: &Manifest) -> Result<Vec<Lib>> {
+fn resolve(m: &Manifest, win: bool) -> Result<Vec<Lib>> {
     fn visit(
-        name: &str,
+        orig: &str,
+        win: bool,
         wanted: &BTreeMap<String, DepSpec>,
         reg: &HashMap<String, Lib>,
         out: &mut Vec<Lib>,
         seen: &mut HashSet<String>,
     ) -> Result<()> {
+        let name = curses_alias(orig, win);
+        if !win && name == "pdcurses" {
+            bail!("'pdcurses' só é suportado no Windows; no Linux use 'ncurses' (ou 'ncursesw')");
+        }
         if !seen.insert(name.to_string()) { return Ok(()); }
-        let lib = match wanted.get(name) {
-            Some(DepSpec::Custom(c)) => custom_to_lib(name, c)?,
+        let swapped = name != orig;
+        let lib = match wanted.get(orig) {
+            Some(DepSpec::Custom(c)) if !swapped => custom_to_lib(name, c)?,
             other => {
                 let mut l = reg.get(name).cloned()
                     .ok_or_else(|| anyhow!("biblioteca desconhecida '{name}' (veja `rsfmake list` ou use a forma {{ git = ... }})"))?;
-                if let Some(DepSpec::Version(v)) = other {
+                if let (false, Some(DepSpec::Version(v))) = (swapped, other) {
                     if !v.is_empty() && v != "*" { l.tag = v.clone(); }
                 }
                 l
             }
         };
-        for d in lib.deps.clone() { visit(&d, wanted, reg, out, seen)?; }
+        for d in lib.deps.clone() { visit(&d, win, wanted, reg, out, seen)?; }
         out.push(lib);
         Ok(())
     }
     let reg = registry();
     let (mut out, mut seen) = (vec![], HashSet::new());
-    for name in m.dependencies.keys() { visit(name, &m.dependencies, &reg, &mut out, &mut seen)?; }
+    for name in m.dependencies.keys() { visit(name, win, &m.dependencies, &reg, &mut out, &mut seen)?; }
     Ok(out)
 }
 
@@ -434,6 +445,14 @@ fn build_cmake_dep(ctx: &Ctx, l: &Lib, src: &Path) -> Result<()> {
     c.arg(format!("-DCMAKE_INSTALL_PREFIX={}", fwd(&prefix)));
     c.arg(format!("-DCMAKE_PREFIX_PATH={}", fwd(&prefix)));
     c.arg(format!("-DBUILD_SHARED_LIBS={}", if l.shared { "ON" } else { "OFF" }));
+    // UTF-8: MSVC nativo no Windows; GCC/Clang/MinGW nos demais casos
+    if cfg!(windows) && ctx.target == Plat::Windows {
+        c.arg("-DCMAKE_C_FLAGS=/utf-8");
+        c.arg("-DCMAKE_CXX_FLAGS=/utf-8");
+    } else {
+        c.arg("-DCMAKE_C_FLAGS=-finput-charset=UTF-8 -fexec-charset=UTF-8");
+        c.arg("-DCMAKE_CXX_FLAGS=-finput-charset=UTF-8 -fexec-charset=UTF-8");
+    }
     if let Some(t) = &ctx.toolchain { c.arg(format!("-DCMAKE_TOOLCHAIN_FILE={}", fwd(t))); }
     c.args(&l.opts);
     run(&mut c, &format!("cmake configure ({})", l.name))?;
@@ -483,6 +502,18 @@ fn install_prebuilt(ctx: &Ctx, l: &Lib) -> Result<PathBuf> {
     Ok(root)
 }
 
+/// Cria <prefixo>/include/ncurses.h -> <curses.h>, para o mesmo `#include <ncurses.h>` valer no Linux e no Windows.
+fn write_ncurses_shim(ctx: &Ctx) -> Result<()> {
+    let dir = ctx.prefix().join("include");
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join("ncurses.h");
+    let body = "#pragma once\n// gerado pelo rsfmake: ncurses no Windows = PDCursesMod\n#include <curses.h>\n";
+    if std::fs::read_to_string(&path).map(|s| s != body).unwrap_or(true) {
+        std::fs::write(&path, body)?;
+    }
+    Ok(())
+}
+
 fn prepare_deps(ctx: &Ctx, libs: &[Lib]) -> Result<Vec<(Lib, Option<PathBuf>)>> {
     let mut out = vec![];
     for l in libs {
@@ -494,6 +525,7 @@ fn prepare_deps(ctx: &Ctx, libs: &[Lib]) -> Result<Vec<(Lib, Option<PathBuf>)>> 
         }
         let src = fetch(ctx, l)?;
         if l.kind == Kind::Cmake { build_cmake_dep(ctx, l, &src)?; }
+        if l.name == "pdcurses" { write_ncurses_shim(ctx)?; }
         out.push((l.clone(), Some(src)));
     }
     Ok(out)
@@ -548,13 +580,22 @@ fn gen_cmake(ctx: &Ctx, m: &Manifest, deps: &[(Lib, Option<PathBuf>)]) -> Result
     writeln!(c, "file(GLOB_RECURSE RSF_SOURCES CONFIGURE_DEPENDS {})", quote(&pats))?;
 
     // fontes de deps do tipo Sources (imgui, ...)
-    let mut dep_src = vec![];
+    let (mut dep_src, mut dep_glob) = (vec![], vec![]);
     for (l, src) in deps {
         if l.kind == Kind::Sources {
-            if let Some(s) = src { for f in &l.srcs { dep_src.push(fwd(&s.join(f))); } }
+            if let Some(s) = src {
+                for f in &l.srcs {
+                    let full = fwd(&s.join(f));
+                    if f.contains('*') { dep_glob.push(full); } else { dep_src.push(full); }
+                }
+            }
         }
     }
     writeln!(c, "set(RSF_DEP_SOURCES {})", quote(&dep_src))?;
+    if !dep_glob.is_empty() {
+        writeln!(c, "file(GLOB RSF_DEP_GLOB {})", quote(&dep_glob))?;
+        writeln!(c, "list(APPEND RSF_DEP_SOURCES ${{RSF_DEP_GLOB}})")?;
+    }
 
     match p.kind.as_str() {
         "exe" => writeln!(c, "add_executable({name} ${{RSF_SOURCES}} ${{RSF_DEP_SOURCES}})")?,
@@ -591,6 +632,12 @@ fn gen_cmake(ctx: &Ctx, m: &Manifest, deps: &[(Lib, Option<PathBuf>)]) -> Result
     if !defs.is_empty() {
         writeln!(c, "target_compile_definitions({name} PRIVATE {})", dedup(defs).join(" "))?;
     }
+    // UTF-8 em fontes e strings literais (MSVC e GCC/Clang/MinGW)
+    writeln!(c, "if(MSVC)")?;
+    writeln!(c, "  target_compile_options({name} PRIVATE /utf-8)")?;
+    writeln!(c, "else()")?;
+    writeln!(c, "  target_compile_options({name} PRIVATE -finput-charset=UTF-8 -fexec-charset=UTF-8)")?;
+    writeln!(c, "endif()")?;
     if !p.cxxflags.is_empty() {
         writeln!(c, "target_compile_options({name} PRIVATE {})", quote(&p.cxxflags))?;
     }
@@ -649,7 +696,7 @@ fn cmd_build(root: &Path, b: &BuildArgs, deps_only: bool) -> Result<Option<PathB
     let mut ctx = Ctx::new(root.to_path_buf(), b)?;
     ctx.setup_toolchain()?;
 
-    let libs = resolve(&m)?;
+    let libs = resolve(&m, ctx.target == Plat::Windows)?;
     let deps = prepare_deps(&ctx, &libs)?;
     if deps_only { return Ok(None); }
 
@@ -704,6 +751,7 @@ nlohmann_json = "*"
 # tinygltf = "*"
 # bullet3 = "*"
 # imgui_glfw_gl3 = "*"
+# ncurses = "*"     # TUI: ncurses no Linux, PDCursesMod no Windows (#include <ncurses.h> nos dois)
 
 # Lib customizada (qualquer repo git com CMake):
 # fmod = "*"        # SDK proprietário: extraia em redist/_sdk/fmod
