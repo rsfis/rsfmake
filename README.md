@@ -101,9 +101,13 @@ To see the list directly in the terminal: `rsfmake list`.
 
 ## System
 - `opengl` (system)
-- `vulkan` (system, uses `VULKAN_SDK` if set)
-- `mysqlpp` (system) — MySQL++, `sudo apt install libmysql++-dev`
+- `vulkan` (system, uses `VULKAN_SDK` if set; on Windows requires the LunarG SDK)
+- `openssl` (system, `libssl-dev`; on Windows uses `OPENSSL_ROOT_DIR`)
+- `sqlite3` (system, `libsqlite3-dev`; on Windows swapped for `sqlite3_amalgamation`)
+- `mysqlpp` (system) — MySQL++, `sudo apt install libmysql++-dev`; on Windows uses `MYSQLPP_DIR`
 - `gpsd` (system) — libgps, Linux only, `sudo apt install libgps-dev`
+- `ffmpeg` (system, `libav*-dev`; on Windows uses `FFMPEG_DIR` or auto-download)
+- `libusb` (system, `libusb-1.0-0-dev`; on Windows uses `LIBUSB_DIR`)
 
 ## Windowing, input and multimedia
 - `glfw` (cmake, 3.4)
@@ -113,33 +117,57 @@ To see the list directly in the terminal: `rsfmake list`.
 - `sdl2_ttf` (cmake, release-2.22.0)
 - `sdl2_mixer` (cmake, release-2.8.0)
 - `sfml` (cmake, 3.0.0)
-- `ncurses` (system, 6.5)
+- `hidapi` (cmake, hidapi-0.14.0)
+- `serial` (sources, 1.2.1) — serial port access
+- `portable_file_dialogs` (header, 0.1.0)
 
-## OpenGL / Vulkan
+## Terminal / TUI
+- `ncurses` (system, 6.5) — uses `ncursesw` on Linux; replaced by `pdcurses` on Windows
+- `ncursesw` (system) — explicit alias of `ncurses`
+- `pdcurses` (sources, v4.4.0) — PDCursesMod, Windows only
+- `ftxui` (cmake, v5.0.0)
+- `indicators` (header, v2.3)
+
+## OpenGL / Vulkan / rendering
 - `glad` (cmake, v0.1.36) — requires `python3`; defines `GLFW_INCLUDE_NONE`
 - `vulkan_headers` (header, v1.3.296)
 - `vma` (header, v3.1.0)
 - `volk` (sources, vulkan-sdk-1.3.296.0)
 - `meshoptimizer` (cmake, v0.22)
+- `bgfx` (cmake, master) — via bgfx.cmake (bx, bimg, bgfx)
+- `spirv_cross` (cmake, vulkan-sdk-1.3.296.0)
+- `ktx` (cmake, v4.3.2)
 
 ## Graphics, games and engines
 - `raylib` (cmake, 5.5)
 - `ogre` (cmake, v14.3.2) — heavy build
 - `entt` (header, v3.14.0)
+- `flecs` (cmake, v4.0.3)
 - `enet` (cmake, v1.3.18)
 - `tracy` (sources, v0.11.1)
+- `optick` (sources, master)
+- `tiled_tmxlite` (cmake, v1.4.4)
+- `recastnavigation` (cmake, v1.6.0)
+- `fastnoise2` (cmake, v0.10.0-alpha)
+- `earcut` (header, v2.2.4)
+- `clipper2` (cmake, Clipper2_1.4.0)
 
 ## Physics
 - `bullet3` (cmake, 3.25)
 - `joltphysics` (cmake, v5.2.0)
 - `reactphysics3d` (cmake, v0.10.2)
 - `box2d` (cmake, v2.4.2)
+- `liquidfun` (sources, master) — Box2D fork with particles; conflicts with `box2d`
 
-## Math
+## Math and scientific
 - `glm` (header, 1.0.1)
 - `eigen` (header, 3.4.0)
 - `cglm` (header, v0.9.4)
-- `armadillo` (header, 14.0.3) — needs `libopenblas-dev`
+- `armadillo` (header, 14.0.3) — needs `libopenblas-dev`; on Windows uses `OPENBLAS_DIR` or auto-download
+- `xtl` (header, 0.7.7)
+- `xtensor` (header, 0.25.0, depends on `xtl`)
+- `exprtk` (header, master)
+- `pcg_cpp` (header, master)
 
 ## 3D models and images
 - `assimp` (cmake, v5.4.3)
@@ -149,26 +177,55 @@ To see the list directly in the terminal: `rsfmake list`.
 - `stb` (header, master)
 - `stb_image` (header, master) — alias of `stb`
 - `freetype` (cmake, VER-2-13-3)
+- `harfbuzz` (cmake, 10.0.1, depends on `freetype`)
+- `libpng` (cmake, v1.6.44, depends on `zlib`)
+- `libjpeg_turbo` (cmake, 3.0.4)
+- `libwebp` (cmake, v1.4.0)
+- `opencv` (cmake, 4.10.0) — `opencv_world`, heavy build
 
 ## Data and formats
 - `nlohmann_json` (header, v3.11.3)
 - `rapidjson` (header, v1.1.0)
+- `simdjson` (sources, v3.10.1)
+- `jsoncpp` (cmake, 1.9.6) — mainly a Windows dependency of `drogon`
 - `pugixml` (cmake, v1.14)
 - `tinyxml2` (cmake, 10.0.0)
 - `tinyxml` (cmake, 10.0.0) — alias of `tinyxml2`
 - `tomlplusplus` (header, v3.4.0)
 - `toml` (header, v3.4.0) — alias of `tomlplusplus`
 - `yaml_cpp` (cmake, 0.8.0)
+- `inih` (sources, r58)
+- `csv_parser` (header, 2.3.0)
+- `xlnt` (cmake, v1.5.0) — xlsx
+- `flatbuffers` (cmake, v24.3.25)
+- `cereal` (header, v1.3.2)
+
+## Compression
+- `zlib` (cmake, v1.3.1)
+- `zstd` (cmake, v1.5.6)
+- `lz4` (cmake, v1.10.0)
 
 ## Databases
+- `sqlite3` (system) — see System
+- `sqlite3_amalgamation` (sources, master) — used on Windows in place of `sqlite3`
 - `sqlitecpp` (cmake, 3.3.2)
-- `mysqlpp` (system)
+- `mysqlpp` (system) — see System
 - `qtl` (header, master)
+- `libpqxx` (cmake, 7.9.2) — needs `libpq-dev`; on Windows uses `PGSQL_DIR` or auto-download
+- `hiredis` (cmake, v1.2.0)
+- `leveldb` (cmake, 1.23)
 
 ## Audio
 - `openal` (cmake, 1.23.1)
 - `miniaudio` (header, 0.11.21)
 - `dr_libs` (header, master)
+- `soloud` (sources, RELEASE_20200207) — miniaudio backend
+- `libsndfile` (cmake, 1.2.2)
+- `rtaudio` (cmake, 6.0.1)
+- `libogg` (cmake, v1.3.5)
+- `libvorbis` (cmake, v1.3.7, depends on `libogg`)
+- `lilbvorbis` (cmake, v1.3.7) — alias of `libvorbis`
+- `opus` (cmake, v1.5.2)
 - `fmod` (sdk) — download into redist/_sdk/fmod
 - `fmodstudio` (sdk, depends on `fmod`)
 - `steamworks` (sdk) — download into redist/_sdk/steamworks
@@ -179,31 +236,70 @@ To see the list directly in the terminal: `rsfmake list`.
 - `imgui_glfw_vulkan` (sources) — imgui + GLFW + Vulkan
 - `imgui_sdl2_gl3` (sources) — imgui + SDL2 + OpenGL3
 - `implot` (sources, v0.16)
+- `imgui_node_editor` (sources, master)
+- `imguizmo` (sources, master)
 - `nanogui` (cmake, master)
+- `rmlui` (cmake, 6.0, depends on `freetype`)
 
 ## Scripting
 - `lua` (sources, v5.4.7)
 - `sol2` (header, v3.3.0, depends on `lua`)
+- `chaiscript` (header, v6.1.0)
+- `pybind11` (header, v2.13.6) — needs Python headers/libs in the project flags
 
-## Networking and concurrency
+## AI / ML
+- `llama_cpp` (cmake, master)
+- `ggml` (cmake, master)
+- `whisper_cpp` (cmake, master)
+- `onnxruntime` (sdk) — download into redist/_sdk/onnxruntime
+- Note: do not mix `llama_cpp`, `ggml` and `whisper_cpp` (duplicate ggml)
+
+## Networking, web and concurrency
 - `asio` (header, asio-1-30-2)
 - `httplib` (header, v0.18.1) — cpp-httplib
+- `curl` (cmake, curl-8_10_1) — needs `libssl-dev` on Linux
+- `cpr` (cmake, 1.11.0, depends on `curl`)
+- `websocketpp` (header, 0.8.2, depends on `asio`)
+- `ixwebsocket` (cmake, v11.4.5)
+- `crow` (header, v1.2.0, depends on `asio`)
+- `drogon` (cmake, v1.9.7) — needs `libjsoncpp-dev` and `uuid-dev`; TLS disabled
+- `oatpp` (cmake, 1.3.0-latest)
 - `eventpp` (header, v0.1.3)
 - `concurrentqueue` (header, v1.0.4)
+- `taskflow` (header, v3.8.0)
 
 ## C++ utilities
 - `fmt` (cmake, 11.0.2)
 - `spdlog` (cmake, v1.14.1)
+- `easyloggingpp` (header, v9.97.1)
+- `cpptrace` (cmake, v0.7.2)
 - `cli11` (header, v2.4.2)
+- `cxxopts` (header, v3.2.0)
 - `magic_enum` (header, v0.9.6)
 - `range_v3` (header, 0.12.0)
+- `date` (header, v3.0.3)
+- `gsl` (header, v4.0.0)
+- `boost_di` (header, v1.3.0)
 - `unordered_dense` (header, v4.4.0)
-- `zlib` (cmake, v1.3.1)
+- `parallel_hashmap` (header, v1.3.12)
+- `robin_hood` (header, 3.11.5)
+- `plf_colony` (header, master)
+- `xxhash` (sources, v0.8.2)
+- `subprocess` (header, v2.0)
+- `dylib` (header, v2.2.1)
+- `mimalloc` (cmake, v2.1.7)
+- `rpmalloc` (sources, 1.4.5)
 
-## Testing
+## Text / parsing
+- `pcre2` (cmake, pcre2-10.44)
+- `utfcpp` (header, v4.0.5)
+- `pegtl` (header, 3.2.7)
+
+## Testing and benchmarking
 - `catch2` (cmake, v3.7.1)
 - `doctest` (header, v2.4.11)
 - `googletest` (cmake, v1.15.2)
+- `benchmark` (cmake, v1.9.0)
 
 ---
 
