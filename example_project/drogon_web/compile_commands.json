@@ -1,0 +1,8 @@
+[
+{
+  "directory": "/media/meunvme/PROGRAMACAO/Rust/rsfmake/example_project/ex2/bin/build_temp/linux+debug/build",
+  "command": "/usr/bin/c++ -DRTAUDIO_STATIC -I/media/meunvme/PROGRAMACAO/Rust/rsfmake/example_project/ex2/include -I/media/meunvme/PROGRAMACAO/Rust/rsfmake/example_project/ex2/src -isystem /media/meunvme/PROGRAMACAO/Rust/rsfmake/example_project/ex2/redist/linux/x64/include -isystem /usr/include/jsoncpp -isystem /usr/include/postgresql -isystem /media/meunvme/PROGRAMACAO/Rust/rsfmake/example_project/ex2/redist/linux/x64/include/rtaudio -g -std=c++17 -finput-charset=UTF-8 -fexec-charset=UTF-8 -o CMakeFiles/exemplo2.dir/media/meunvme/PROGRAMACAO/Rust/rsfmake/example_project/ex2/src/main.cpp.o -c /media/meunvme/PROGRAMACAO/Rust/rsfmake/example_project/ex2/src/main.cpp",
+  "file": "/media/meunvme/PROGRAMACAO/Rust/rsfmake/example_project/ex2/src/main.cpp",
+  "output": "/media/meunvme/PROGRAMACAO/Rust/rsfmake/example_project/ex2/bin/build_temp/linux+debug/build/CMakeFiles/exemplo2.dir/media/meunvme/PROGRAMACAO/Rust/rsfmake/example_project/ex2/src/main.cpp.o"
+}
+]

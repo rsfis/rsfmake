@@ -76,12 +76,14 @@ struct CustomDep {
     sdk_dir: String,
     libdir: String,
     libdir_win: String,
+    apt: Vec<String>,     // system -dev packages (Debian/Ubuntu)
+    sys_inc: Vec<String>, // extra absolute include dirs
 }
 
 // ───────────────────────────── CLI ─────────────────────────────
 
 #[derive(Parser)]
-#[command(name = "rsfmake", version, about = "Gerenciador de pacotes/build C++ sobre CMake + Ninja")]
+#[command(name = "rsfmake", version, about = "C++ package/build manager on top of CMake + Ninja")]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -89,39 +91,39 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Cria um novo projeto
+    /// Create a new project
     New { name: String },
-    /// Cria rsfmake.toml no diretório atual
+    /// Create rsfmake.toml in the current directory
     Init,
-    /// Compila o projeto (e as dependências)
+    /// Build the project (and its dependencies)
     Build(BuildArgs),
-    /// Compila e executa
+    /// Build and run
     Run {
         #[command(flatten)]
         b: BuildArgs,
         #[arg(last = true)]
         args: Vec<String>,
     },
-    /// Só baixa e compila as dependências
+    /// Only download and build the dependencies
     Deps(BuildArgs),
-    /// Remove bin/ (--all remove também redist/)
+    /// Remove bin/ (--all also removes redist/)
     Clean {
         #[arg(long)]
         all: bool,
     },
-    /// Lista as bibliotecas embutidas
+    /// List the built-in libraries
     List,
 }
 
 #[derive(Args, Clone)]
 struct BuildArgs {
-    /// Build release (padrão: debug)
+    /// Release build (default: debug)
     #[arg(short, long)]
     release: bool,
-    /// linux | windows (padrão: o host)
+    /// linux | windows (default: the host)
     #[arg(long)]
     target: Option<String>,
-    /// x64 | arm64 (padrão: a do host)
+    /// x64 | arm64 (default: the host's)
     #[arg(long)]
     arch: Option<String>,
 }
@@ -157,13 +159,13 @@ impl Ctx {
             None => host,
             Some("linux") => Plat::Linux,
             Some("windows") | Some("win") | Some("win32") => Plat::Windows,
-            Some(o) => bail!("target inválido '{o}' (use linux ou windows)"),
+            Some(o) => bail!("invalid target '{o}' (use linux or windows)"),
         };
         let arch = match a.arch.as_deref() {
             None => host_arch,
             Some("x64") | Some("x86_64") | Some("amd64") => Arch::X64,
             Some("arm64") | Some("aarch64") => Arch::Arm64,
-            Some(o) => bail!("arch inválida '{o}' (use x64 ou arm64)"),
+            Some(o) => bail!("invalid arch '{o}' (use x64 or arm64)"),
         };
         Ok(Ctx { root, target, arch, release: a.release, env: vec![], toolchain: None })
     }
@@ -194,34 +196,34 @@ impl Ctx {
         std::fs::create_dir_all(self.tmp())?;
 
         for t in ["cmake", "git"] {
-            if which(t).is_none() { bail!("'{t}' não encontrado no PATH"); }
+            if which(t).is_none() { bail!("'{t}' not found in PATH"); }
         }
         if !host_win && which("ninja").is_none() {
-            bail!("'ninja' não encontrado (sudo apt install ninja-build)");
+            bail!("'ninja' not found (sudo apt install ninja-build)");
         }
 
         match (host_win, self.target) {
-            (true, Plat::Linux) => bail!("compilar para Linux a partir do Windows não é suportado (use WSL)"),
+            (true, Plat::Linux) => bail!("building for Linux from Windows is not supported (use WSL)"),
             (true, Plat::Windows) => {
                 if which("cl").is_none() {
-                    eprintln!("[rsfmake] carregando ambiente do MSVC...");
+                    eprintln!("[rsfmake] loading the MSVC environment...");
                     self.env = msvc_env(self.arch)?;
                 }
             }
             (false, Plat::Windows) => {
-                if self.arch != Arch::X64 { bail!("cross para Windows ARM64 não é suportado a partir do Linux"); }
+                if self.arch != Arch::X64 { bail!("cross-compiling to Windows ARM64 is not supported from Linux"); }
                 let pre = "x86_64-w64-mingw32";
                 let pick = |b: &str| {
                     let posix = format!("{pre}-{b}-posix");
                     if which(&posix).is_some() { posix } else { format!("{pre}-{b}") }
                 };
                 let (cc, cxx) = (pick("gcc"), pick("g++"));
-                if which(&cxx).is_none() { bail!("MinGW não encontrado (sudo apt install g++-mingw-w64-x86-64)"); }
+                if which(&cxx).is_none() { bail!("MinGW not found (sudo apt install g++-mingw-w64-x86-64)"); }
                 let tc = format!(
                     "set(CMAKE_SYSTEM_NAME Windows)\nset(CMAKE_SYSTEM_PROCESSOR x86_64)\n\
-                     set(CMAKE_C_COMPILER {cc})\nset(CMAKE_CXX_COMPILER {cxx})\n\
-                     set(CMAKE_RC_COMPILER {pre}-windres)\n\
-                     set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)\n"
+set(CMAKE_C_COMPILER {cc})\nset(CMAKE_CXX_COMPILER {cxx})\n\
+set(CMAKE_RC_COMPILER {pre}-windres)\n\
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)\n"
                 );
                 self.write_toolchain(&tc)?;
             }
@@ -232,12 +234,12 @@ impl Ctx {
                         Arch::X64 => ("x86_64-linux-gnu", "x86_64"),
                     };
                     if which(&format!("{triple}-g++")).is_none() {
-                        bail!("compilador cruzado '{triple}-g++' não encontrado (sudo apt install g++-{triple})");
+                        bail!("cross compiler '{triple}-g++' not found (sudo apt install g++-{triple})");
                     }
                     let tc = format!(
                         "set(CMAKE_SYSTEM_NAME Linux)\nset(CMAKE_SYSTEM_PROCESSOR {proc})\n\
-                         set(CMAKE_C_COMPILER {triple}-gcc)\nset(CMAKE_CXX_COMPILER {triple}-g++)\n\
-                         set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)\n"
+set(CMAKE_C_COMPILER {triple}-gcc)\nset(CMAKE_CXX_COMPILER {triple}-g++)\n\
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)\n"
                     );
                     self.write_toolchain(&tc)?;
                 }
@@ -271,8 +273,8 @@ fn which(name: &str) -> Option<PathBuf> {
 }
 
 fn run(cmd: &mut Command, what: &str) -> Result<()> {
-    let st = cmd.status().with_context(|| format!("não consegui executar {what} (está no PATH?)"))?;
-    if !st.success() { bail!("{what} falhou ({st})"); }
+    let st = cmd.status().with_context(|| format!("could not run {what} (is it in PATH?)"))?;
+    if !st.success() { bail!("{what} failed ({st})"); }
     Ok(())
 }
 
@@ -301,30 +303,30 @@ fn msvc_env(arch: Arch) -> Result<Vec<(String, String)>> {
     let pf = std::env::var("ProgramFiles(x86)").unwrap_or_else(|_| r"C:\Program Files (x86)".into());
     let vswhere = PathBuf::from(pf).join(r"Microsoft Visual Studio\Installer\vswhere.exe");
     let out = Command::new(&vswhere)
-        .args(["-latest", "-products", "*", "-requires",
-               "Microsoft.VisualStudio.Component.VC.Tools.x86.x64", "-property", "installationPath"])
-        .output()
-        .context("vswhere não encontrado: instale o Visual Studio / Build Tools com o workload C++")?;
+    .args(["-latest", "-products", "*", "-requires",
+          "Microsoft.VisualStudio.Component.VC.Tools.x86.x64", "-property", "installationPath"])
+    .output()
+    .context("vswhere not found: install Visual Studio / Build Tools with the C++ workload")?;
     let inst = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if inst.is_empty() { bail!("Visual Studio com ferramentas C++ não encontrado"); }
+    if inst.is_empty() { bail!("Visual Studio with C++ tools not found"); }
     let bat = PathBuf::from(inst).join(r"VC\Auxiliary\Build\vcvarsall.bat");
     let a = match arch { Arch::X64 => "x64", Arch::Arm64 => "x64_arm64" };
     let out = Command::new("cmd")
-        .raw_arg(format!("/C \"\"{}\" {} >nul && set\"", bat.display(), a))
-        .output()?;
+    .raw_arg(format!("/C \"\"{}\" {} >nul && set\"", bat.display(), a))
+    .output()?;
     let text = String::from_utf8_lossy(&out.stdout);
     let vars: Vec<(String, String)> = text
-        .lines()
-        .filter_map(|l| l.split_once('='))
-        .filter(|(k, _)| !k.is_empty() && !k.starts_with('='))
-        .map(|(k, v)| (k.to_string(), v.trim_end().to_string()))
-        .collect();
-    if vars.is_empty() { bail!("falha ao carregar o ambiente do MSVC"); }
+    .lines()
+    .filter_map(|l| l.split_once('='))
+    .filter(|(k, _)| !k.is_empty() && !k.starts_with('='))
+    .map(|(k, v)| (k.to_string(), v.trim_end().to_string()))
+    .collect();
+    if vars.is_empty() { bail!("failed to load the MSVC environment"); }
     Ok(vars)
 }
 
 #[cfg(not(windows))]
-fn msvc_env(_: Arch) -> Result<Vec<(String, String)>> { bail!("MSVC só existe no Windows") }
+fn msvc_env(_: Arch) -> Result<Vec<(String, String)>> { bail!("MSVC only exists on Windows") }
 
 // ───────────────────────────── Dependências ─────────────────────────────
 
@@ -335,12 +337,12 @@ fn custom_to_lib(name: &str, c: &CustomDep) -> Result<Lib> {
         Some("sources") => Kind::Sources,
         Some("system") => Kind::System,
         Some("prebuilt") => Kind::Prebuilt,
-        Some(o) => bail!("kind inválido '{o}' em [{name}]"),
+        Some(o) => bail!("invalid kind '{o}' in [{name}]"),
         None if !c.libs.is_empty() || !c.cmake.is_empty() => Kind::Cmake,
         None if !c.sources.is_empty() => Kind::Sources,
         None => Kind::Header,
     };
-    if !matches!(kind, Kind::System | Kind::Prebuilt) && c.git.is_empty() { bail!("dependência '{name}' sem 'git'"); }
+    if !matches!(kind, Kind::System | Kind::Prebuilt) && c.git.is_empty() { bail!("dependency '{name}' has no 'git'"); }
     let mut l = Lib::new(name, &c.git, if c.tag.is_empty() { "master" } else { &c.tag }, kind);
     l.subdir = c.subdir.clone();
     l.opts = c.cmake.clone();
@@ -357,13 +359,21 @@ fn custom_to_lib(name: &str, c: &CustomDep) -> Result<Lib> {
     l.sdk_dir = if c.sdk_dir.is_empty() { name.to_string() } else { c.sdk_dir.clone() };
     l.libdir_linux = c.libdir.clone();
     l.libdir_win = if c.libdir_win.is_empty() { c.libdir.clone() } else { c.libdir_win.clone() };
-    l.help = format!("Extraia o SDK de '{name}' em redist/_sdk/{} (ou defina {})", l.sdk_dir, l.sdk_env);
+    l.apt = c.apt.clone();
+    l.sys_inc = c.sys_inc.clone();
+    l.help = format!("Extract the '{name}' SDK into redist/_sdk/{} (or set {})", l.sdk_dir, l.sdk_env);
     Ok(l)
 }
 
 /// No Windows não existe ncurses nativo: usa PDCursesMod (que expõe a mesma API).
+/// Também troca `sqlite3` (lib do sistema no Linux) pela amalgamation compilada junto com o projeto.
 fn curses_alias(name: &str, win: bool) -> &str {
-    if win && matches!(name, "ncurses" | "ncursesw") { "pdcurses" } else { name }
+    if !win { return name; }
+    match name {
+        "ncurses" | "ncursesw" => "pdcurses",
+        "sqlite3" => "sqlite3_amalgamation",
+        _ => name,
+    }
 }
 
 /// Expande dependências transitivas; resultado em ordem "deps primeiro".
@@ -378,7 +388,7 @@ fn resolve(m: &Manifest, win: bool) -> Result<Vec<Lib>> {
     ) -> Result<()> {
         let name = curses_alias(orig, win);
         if !win && name == "pdcurses" {
-            bail!("'pdcurses' só é suportado no Windows; no Linux use 'ncurses' (ou 'ncursesw')");
+            bail!("'pdcurses' is only supported on Windows; on Linux use 'ncurses' (or 'ncursesw')");
         }
         if !seen.insert(name.to_string()) { return Ok(()); }
         let swapped = name != orig;
@@ -386,14 +396,16 @@ fn resolve(m: &Manifest, win: bool) -> Result<Vec<Lib>> {
             Some(DepSpec::Custom(c)) if !swapped => custom_to_lib(name, c)?,
             other => {
                 let mut l = reg.get(name).cloned()
-                    .ok_or_else(|| anyhow!("biblioteca desconhecida '{name}' (veja `rsfmake list` ou use a forma {{ git = ... }})"))?;
+                .ok_or_else(|| anyhow!("unknown library '{name}' (see `rsfmake list` or use the {{ git = ... }} form)"))?;
                 if let (false, Some(DepSpec::Version(v))) = (swapped, other) {
                     if !v.is_empty() && v != "*" { l.tag = v.clone(); }
                 }
                 l
             }
         };
-        for d in lib.deps.clone() { visit(&d, win, wanted, reg, out, seen)?; }
+        let mut all_deps = lib.deps.clone();
+        if win { all_deps.extend(lib.deps_win.iter().cloned()); }
+        for d in all_deps { visit(&d, win, wanted, reg, out, seen)?; }
         out.push(lib);
         Ok(())
     }
@@ -410,11 +422,11 @@ fn fetch(ctx: &Ctx, lib: &Lib) -> Result<PathBuf> {
     std::fs::create_dir_all(&base)?;
     let part = base.join(format!("{}.partial", lib.repo_dir()));
     if part.exists() { std::fs::remove_dir_all(&part)?; }
-    eprintln!("[rsfmake] baixando {} @ {}", lib.name, lib.tag);
+    eprintln!("[rsfmake] downloading {} @ {}", lib.name, lib.tag);
     run(
         Command::new("git")
-            .args(["clone", "--depth", "1", "--recurse-submodules", "--shallow-submodules", "--branch"])
-            .arg(&lib.tag).arg(&lib.git).arg(&part),
+        .args(["clone", "--depth", "1", "--recurse-submodules", "--shallow-submodules", "--branch"])
+        .arg(&lib.tag).arg(&lib.git).arg(&part),
         "git clone",
     )?;
     std::fs::rename(&part, &dir)?;
@@ -425,12 +437,12 @@ fn build_cmake_dep(ctx: &Ctx, l: &Lib, src: &Path) -> Result<()> {
     let prefix = ctx.prefix();
     let stamp = prefix.join(".stamps").join(format!("{}-{}.ok", l.name, l.tag.replace('/', "_")));
     if stamp.exists() {
-        eprintln!("[rsfmake] {} (em cache)", l.name);
+        eprintln!("[rsfmake] {} (cached)", l.name);
         return Ok(());
     }
     let bdir = ctx.tmp().join("deps").join(ctx.platdir()).join(&l.name);
     let sdir = if l.subdir.is_empty() { src.to_path_buf() } else { src.join(&l.subdir) };
-    eprintln!("[rsfmake] compilando {} -> {}", l.name, prefix.display());
+    eprintln!("[rsfmake] building {} -> {}", l.name, prefix.display());
 
     let mut c = ctx.cmd("cmake");
     c.arg("-S").arg(&sdir).arg("-B").arg(&bdir).args([
@@ -443,7 +455,12 @@ fn build_cmake_dep(ctx: &Ctx, l: &Lib, src: &Path) -> Result<()> {
         "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL",
     ]);
     c.arg(format!("-DCMAKE_INSTALL_PREFIX={}", fwd(&prefix)));
-    c.arg(format!("-DCMAKE_PREFIX_PATH={}", fwd(&prefix)));
+    let mut prefix_path = fwd(&prefix);
+    if ctx.target == Plat::Windows {
+        // lib instalada à mão (ex: libpq para o libpqxx): o find_package do CMake precisa achá-la
+        if let Some(root) = win_root(ctx, l) { prefix_path = format!("{};{}", prefix_path, fwd(&root)); }
+    }
+    c.arg(format!("-DCMAKE_PREFIX_PATH={}", prefix_path));
     c.arg(format!("-DBUILD_SHARED_LIBS={}", if l.shared { "ON" } else { "OFF" }));
     // UTF-8: MSVC nativo no Windows; GCC/Clang/MinGW nos demais casos
     if cfg!(windows) && ctx.target == Plat::Windows {
@@ -471,7 +488,7 @@ fn install_prebuilt(ctx: &Ctx, l: &Lib) -> Result<PathBuf> {
         _ => ctx.root.join("redist").join("_sdk").join(&l.sdk_dir),
     };
     if !root.is_dir() {
-        bail!("SDK de '{}' não encontrado em {}.\n{}", l.name, root.display(), l.help);
+        bail!("SDK for '{}' not found at {}.\n{}", l.name, root.display(), l.help);
     }
     let win = ctx.target == Plat::Windows;
     let token = match (win, ctx.arch) {
@@ -482,7 +499,7 @@ fn install_prebuilt(ctx: &Ctx, l: &Lib) -> Result<PathBuf> {
     let tpl = if win { &l.libdir_win } else { &l.libdir_linux };
     let dir = root.join(tpl.replace("{arch}", token));
     if !dir.is_dir() {
-        bail!("pasta de bibliotecas não encontrada: {}\n{}", dir.display(), l.help);
+        bail!("library folder not found: {}\n{}", dir.display(), l.help);
     }
     let (lib_out, bin_out) = (ctx.prefix().join("lib"), ctx.prefix().join("bin"));
     std::fs::create_dir_all(&lib_out)?;
@@ -498,7 +515,7 @@ fn install_prebuilt(ctx: &Ctx, l: &Lib) -> Result<PathBuf> {
             std::fs::copy(&p, lib_out.join(&n))?;
         }
     }
-    eprintln!("[rsfmake] {} instalado de {}", l.name, root.display());
+    eprintln!("[rsfmake] {} installed from {}", l.name, root.display());
     Ok(root)
 }
 
@@ -514,9 +531,80 @@ fn write_ncurses_shim(ctx: &Ctx) -> Result<()> {
     Ok(())
 }
 
+/// Confere os pacotes -dev (apt) exigidos pelas libs e oferece instalar os que faltam.
+/// Só roda quando o host e o alvo são Linux; em outras distros apenas avisa.
+fn ensure_apt(ctx: &Ctx, libs: &[Lib]) -> Result<()> {
+    if cfg!(windows) || ctx.target != Plat::Linux { return Ok(()); }
+    let wanted = dedup(libs.iter().flat_map(|l| l.apt.iter().cloned()).collect());
+    if wanted.is_empty() { return Ok(()); }
+    if which("dpkg-query").is_none() || which("apt-get").is_none() {
+        eprintln!("[rsfmake] warning: no apt/dpkg; install manually: {}", wanted.join(" "));
+        return Ok(());
+    }
+    let missing: Vec<String> = wanted.into_iter().filter(|p| {
+        let out = Command::new("dpkg-query").args(["-W", "-f=${Status}", p.as_str()]).output();
+        !matches!(out, Ok(o) if o.status.success() && String::from_utf8_lossy(&o.stdout).contains("install ok installed"))
+    }).collect();
+    if missing.is_empty() { return Ok(()); }
+
+    let list = missing.join(" ");
+    eprintln!("[rsfmake] missing system packages: {list}");
+    if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        bail!("install with: sudo apt-get install {list}");
+    }
+    eprint!("[rsfmake] install now with `sudo apt-get install -y {list}`? [y/N] ");
+    let mut ans = String::new();
+    std::io::stdin().read_line(&mut ans)?;
+    if !matches!(ans.trim().to_lowercase().as_str(), "s" | "sim" | "y" | "yes") {
+        bail!("missing packages: {list}");
+    }
+    let mut c = if std::env::var("USER").map(|u| u == "root").unwrap_or(false) { Command::new("apt-get") } else {
+        let mut c = Command::new("sudo"); c.arg("apt-get"); c
+    };
+    c.args(["install", "-y"]).args(&missing);
+    run(&mut c, "apt-get install")
+}
+
+/// Windows: confere cedo (com mensagem clara) o que no Linux o `apt` resolve sozinho.
+/// Libs com `win_env` precisam da pasta indicada; as DLLs dela são copiadas para redist/windows/<arch>/bin.
+fn check_windows_requirements(ctx: &Ctx, l: &Lib) -> Result<()> {
+    if ctx.target != Plat::Windows { return Ok(()); }
+    if l.linux_only {
+        bail!("library '{}' is only available on Linux (no Windows build); remove it from [dependencies] when targeting Windows", l.name);
+    }
+    if l.win_env.is_empty() { return Ok(()); }
+    let first = l.win_env.split(',').next().unwrap_or("").trim().to_string();
+    if l.name == "vulkan" {
+        if std::env::var("VULKAN_SDK").is_err() {
+            bail!("'{}' needs {} on Windows.\n{}", l.name, first, l.win_help);
+        }
+        return Ok(());
+    }
+    let root = match win_root(ctx, l) {
+        Some(r) => Some(r),
+        None => download_win_sdk(ctx, l)?,
+    };
+    let Some(root) = root else {
+        bail!("'{}' needs a manual install on Windows: set {} to the library folder.\n{}", l.name, l.win_env.replace(',', " or "), l.win_help);
+    };
+    let bin = ctx.prefix().join("bin");
+    for d in WIN_DLL_DIRS {
+        if let Ok(rd) = std::fs::read_dir(root.join(d)) {
+            for e in rd.flatten() {
+                if e.path().extension().is_some_and(|x| x.eq_ignore_ascii_case("dll")) {
+                    std::fs::create_dir_all(&bin)?;
+                    std::fs::copy(e.path(), bin.join(e.file_name()))?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn prepare_deps(ctx: &Ctx, libs: &[Lib]) -> Result<Vec<(Lib, Option<PathBuf>)>> {
     let mut out = vec![];
     for l in libs {
+        check_windows_requirements(ctx, l)?;
         if l.kind == Kind::System { out.push((l.clone(), None)); continue; }
         if l.kind == Kind::Prebuilt {
             let sdk = install_prebuilt(ctx, l)?;
@@ -541,8 +629,69 @@ fn include_dirs(ctx: &Ctx, l: &Lib, src: Option<&Path>) -> Vec<String> {
     l.inc.iter().map(|i| fwd(&base.join(i))).collect()
 }
 
+/// Subpastas (relativas à raiz de uma lib instalada à mão no Windows) onde procurar .lib e .dll.
+const WIN_LIB_DIRS: &[&str] = &["lib", "lib/x64", "lib64", "lib/VC/x64/MD", "VS2022/MS64/dll", "VS2019/MS64/dll", "MS64/dll"];
+const WIN_DLL_DIRS: &[&str] = &["bin", "bin/x64", "VS2022/MS64/dll", "VS2019/MS64/dll", "MS64/dll"];
+
+/// Windows: pasta raiz de uma lib instalada à mão (variável de ambiente `win_env`, aceita vários nomes separados por vírgula).
+fn win_root(ctx: &Ctx, l: &Lib) -> Option<PathBuf> {
+    // 1) variável de ambiente
+    let from_env = l.win_env.split(',').map(str::trim).filter(|n| !n.is_empty())
+        .filter_map(|n| std::env::var(n).ok())
+        .map(PathBuf::from)
+        .find(|p| p.is_dir());
+    if from_env.is_some() { return from_env; }
+    // 2) baixado antes pelo rsfmake em redist/_sdk/<lib>
+    if let Some(p) = find_sdk_root(&ctx.root.join("redist").join("_sdk").join(&l.name)) { return Some(p); }
+    // 3) PostgreSQL já instalado no local padrão
+    if l.name == "libpqxx" {
+        let mut dirs: Vec<PathBuf> = std::fs::read_dir(r"C:\Program Files\PostgreSQL").ok()?.flatten().map(|e| e.path()).collect();
+        dirs.sort();
+        return dirs.into_iter().rev().find(|d| d.join("lib").join("libpq.lib").is_file());
+    }
+    None
+}
+
+/// Pasta (ela mesma ou uma subpasta direta) que contém `include/`.
+fn find_sdk_root(dir: &Path) -> Option<PathBuf> {
+    if dir.join("include").is_dir() { return Some(dir.to_path_buf()); }
+    std::fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).find(|p| p.join("include").is_dir())
+}
+
+/// Windows: baixa o zip da lib (`win_zip`) para redist/_sdk/<lib> e extrai. Usa curl.exe e tar.exe, que já vêm no Windows 10+.
+fn download_win_sdk(ctx: &Ctx, l: &Lib) -> Result<Option<PathBuf>> {
+    if l.win_zip.is_empty() { return Ok(None); }
+    let dir = ctx.root.join("redist").join("_sdk").join(&l.name);
+    std::fs::create_dir_all(&dir)?;
+    let zip = dir.join("download.zip");
+    let mut got = false;
+    for url in &l.win_zip {
+        eprintln!("[rsfmake] downloading {} (Windows binaries): {}", l.name, url);
+        let ok = Command::new("curl.exe").args(["-fL", "--retry", "3", "-o"]).arg(&zip).arg(url)
+            .status().map(|s| s.success()).unwrap_or(false);
+        if ok { got = true; break; }
+        eprintln!("[rsfmake] download failed, trying next source...");
+    }
+    if !got { return Ok(None); }
+    let sysroot = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+    let sys_tar = Path::new(&sysroot).join("System32").join("tar.exe");
+    let mut tar = Command::new(if sys_tar.is_file() { sys_tar } else { PathBuf::from("tar") });
+    tar.arg("-xf").arg(&zip).arg("-C").arg(&dir);
+    run(&mut tar, &format!("extract ({})", l.name))?;
+    let _ = std::fs::remove_file(&zip);
+    Ok(find_sdk_root(&dir))
+}
+
 /// (includes, link dirs) extras de libs do sistema, ex: Vulkan SDK.
 fn system_paths(ctx: &Ctx, l: &Lib) -> (Vec<String>, Vec<String>) {
+    if ctx.target == Plat::Windows && l.name != "vulkan" {
+        if let Some(root) = win_root(ctx, l) {
+            let mut inc = vec![fwd(&root.join("include"))];
+            inc.extend(l.win_inc.iter().map(|i| fwd(&root.join(i))));
+            let dirs = WIN_LIB_DIRS.iter().map(|d| root.join(d)).filter(|p| p.is_dir()).map(|p| fwd(&p)).collect();
+            return (inc, dirs);
+        }
+    }
     if l.name == "vulkan" {
         if let Ok(sdk) = std::env::var("VULKAN_SDK") {
             let sdk = PathBuf::from(sdk);
@@ -601,7 +750,7 @@ fn gen_cmake(ctx: &Ctx, m: &Manifest, deps: &[(Lib, Option<PathBuf>)]) -> Result
         "exe" => writeln!(c, "add_executable({name} ${{RSF_SOURCES}} ${{RSF_DEP_SOURCES}})")?,
         "static" => writeln!(c, "add_library({name} STATIC ${{RSF_SOURCES}} ${{RSF_DEP_SOURCES}})")?,
         "shared" => writeln!(c, "add_library({name} SHARED ${{RSF_SOURCES}} ${{RSF_DEP_SOURCES}})")?,
-        k => bail!("type inválido '{k}' (use exe, static ou shared)"),
+        k => bail!("invalid type '{k}' (use exe, static or shared)"),
     }
 
     // includes / defines / link
@@ -609,8 +758,15 @@ fn gen_cmake(ctx: &Ctx, m: &Manifest, deps: &[(Lib, Option<PathBuf>)]) -> Result
     let mut sys_inc = vec![fwd(&ctx.prefix().join("include"))];
     let mut link_dirs = vec![fwd(&ctx.prefix().join("lib"))];
     let mut defs = p.defines.clone();
+    if win {
+        // evita que <windows.h> inclua o winsock.h antigo (conflita com winsock2.h usado por libpq, asio, httplib, ...)
+        // e que os macros min/max do Windows quebrem std::min/std::max
+        defs.push("WIN32_LEAN_AND_MEAN".into());
+        defs.push("NOMINMAX".into());
+    }
     for (l, src) in deps {
         sys_inc.extend(include_dirs(ctx, l, src.as_deref()));
+        if !win { sys_inc.extend(l.sys_inc.iter().cloned()); }
         defs.extend(l.defs.clone());
         let (i, d) = system_paths(ctx, l);
         sys_inc.extend(i);
@@ -662,13 +818,13 @@ fn find_root() -> Result<PathBuf> {
     let mut d = std::env::current_dir()?;
     loop {
         if d.join("rsfmake.toml").is_file() { return Ok(d); }
-        if !d.pop() { bail!("rsfmake.toml não encontrado (use `rsfmake new` ou `rsfmake init`)"); }
+        if !d.pop() { bail!("rsfmake.toml not found (use `rsfmake new` or `rsfmake init`)"); }
     }
 }
 
 fn load_manifest(root: &Path) -> Result<Manifest> {
     let txt = std::fs::read_to_string(root.join("rsfmake.toml"))?;
-    toml::from_str(&txt).context("rsfmake.toml inválido")
+    toml::from_str(&txt).context("invalid rsfmake.toml")
 }
 
 fn copy_runtime(ctx: &Ctx, out: &Path) -> Result<()> {
@@ -697,6 +853,7 @@ fn cmd_build(root: &Path, b: &BuildArgs, deps_only: bool) -> Result<Option<PathB
     ctx.setup_toolchain()?;
 
     let libs = resolve(&m, ctx.target == Plat::Windows)?;
+    ensure_apt(&ctx, &libs)?;
     let deps = prepare_deps(&ctx, &libs)?;
     if deps_only { return Ok(None); }
 
@@ -725,7 +882,7 @@ fn cmd_build(root: &Path, b: &BuildArgs, deps_only: bool) -> Result<Option<PathB
     }
 
     let exe = out.join(if ctx.target == Plat::Windows { format!("{}.exe", m.package.name) } else { m.package.name.clone() });
-    eprintln!("[rsfmake] pronto: {}", out.display());
+    eprintln!("[rsfmake] done: {}", out.display());
     Ok(Some(exe))
 }
 
@@ -733,54 +890,54 @@ fn scaffold(dir: &Path, name: &str) -> Result<()> {
     std::fs::create_dir_all(dir.join("src"))?;
     let toml = format!(
         r#"[package]
-name = "{name}"
-version = "0.1.0"
-type = "exe"        # exe | static | shared
-std = 20
-# sources = ["src/*.cpp"]
-# include = ["include", "src"]
-# defines = []
-# assets  = "assets"
+        name = "{name}"
+        version = "0.1.0"
+        type = "exe"        # exe | static | shared
+        std = 20
+        # sources = ["src/*.cpp"]
+        # include = ["include", "src"]
+        # defines = []
+        # assets  = "assets"
 
-[dependencies]
-nlohmann_json = "*"
-# glfw = "*"
-# opengl = "*"
-# vulkan = "*"
-# glm = "*"
-# tinygltf = "*"
-# bullet3 = "*"
-# imgui_glfw_gl3 = "*"
-# ncurses = "*"     # TUI: ncurses no Linux, PDCursesMod no Windows (#include <ncurses.h> nos dois)
+        [dependencies]
+        nlohmann_json = "*"
+        # glfw = "*"
+        # opengl = "*"
+        # vulkan = "*"
+        # glm = "*"
+        # tinygltf = "*"
+        # bullet3 = "*"
+        # imgui_glfw_gl3 = "*"
+        # ncurses = "*"     # TUI: ncurses on Linux, PDCursesMod on Windows (#include <ncurses.h> on both)
 
-# Lib customizada (qualquer repo git com CMake):
-# fmod = "*"        # SDK proprietário: extraia em redist/_sdk/fmod
-# minhalib = {{ git = "https://github.com/x/y.git", tag = "v1.0", cmake = ["-DY_TESTS=OFF"], libs = ["y"], inc = ["include/y"] }}
-"#
+        # Custom lib (any git repo with CMake):
+        # fmod = "*"        # Proprietary SDK: extract into redist/_sdk/fmod
+        # minhalib = {{ git = "https://github.com/x/y.git", tag = "v1.0", cmake = ["-DY_TESTS=OFF"], libs = ["y"], inc = ["include/y"] }}
+        "#
     );
     let main = r##"#include <nlohmann/json.hpp>
-#include <iostream>
+    #include <iostream>
 
-int main() {
-    nlohmann::json j = {{"ferramenta", "rsfmake"}, {"ok", true}};
+    int main() {
+    nlohmann::json j = {{"tool", "rsfmake"}, {"ok", true}};
     std::cout << j.dump(2) << "\n";
     return 0;
 }
 "##;
-    let write_new = |p: PathBuf, s: &str| -> Result<()> { if !p.exists() { std::fs::write(p, s)?; } Ok(()) };
-    write_new(dir.join("rsfmake.toml"), &toml)?;
-    write_new(dir.join("src/main.cpp"), main)?;
-    write_new(dir.join(".gitignore"), "bin/\nredist/\ncompile_commands.json\n")?;
-    Ok(())
+let write_new = |p: PathBuf, s: &str| -> Result<()> { if !p.exists() { std::fs::write(p, s)?; } Ok(()) };
+write_new(dir.join("rsfmake.toml"), &toml)?;
+write_new(dir.join("src/main.cpp"), main)?;
+write_new(dir.join(".gitignore"), "bin/\nredist/\ncompile_commands.json\n")?;
+Ok(())
 }
 
 fn main() -> Result<()> {
     match Cli::parse().cmd {
         Cmd::New { name } => {
             let dir = PathBuf::from(&name);
-            if dir.exists() { bail!("'{name}' já existe"); }
+            if dir.exists() { bail!("'{name}' already exists"); }
             scaffold(&dir, &name)?;
-            eprintln!("[rsfmake] projeto '{name}' criado. cd {name} && rsfmake run");
+            eprintln!("[rsfmake] project '{name}' created. cd {name} && rsfmake run");
         }
         Cmd::Init => {
             let cwd = std::env::current_dir()?;
@@ -792,7 +949,7 @@ fn main() -> Result<()> {
         Cmd::Run { b, args } => {
             let host_win = cfg!(windows);
             if let Some(t) = b.target.as_deref() {
-                if (t == "windows") != host_win { bail!("não dá pra executar um binário de outra plataforma"); }
+                if (t == "windows") != host_win { bail!("cannot run a binary for another platform"); }
             }
             let exe = cmd_build(&find_root()?, &b, false)?.unwrap();
             let st = Command::new(&exe).args(args).current_dir(exe.parent().unwrap()).status()?;
@@ -802,7 +959,7 @@ fn main() -> Result<()> {
             let root = find_root()?;
             let _ = std::fs::remove_dir_all(root.join("bin"));
             if all { let _ = std::fs::remove_dir_all(root.join("redist")); }
-            eprintln!("[rsfmake] limpo");
+            eprintln!("[rsfmake] cleaned");
         }
         Cmd::List => {
             let reg = registry();

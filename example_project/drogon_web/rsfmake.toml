@@ -1,0 +1,10 @@
+[package]
+name = "exemplo2"
+version = "0.1.0"
+type = "exe"
+std = 17
+
+[dependencies]
+drogon = "*"    # servidor HTTP (precisa de libjsoncpp-dev e uuid-dev)
+libpqxx = "*"   # cliente PostgreSQL (precisa de libpq-dev)
+rtaudio = "*"   # áudio (precisa de libasound2-dev)
